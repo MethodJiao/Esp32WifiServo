@@ -3,8 +3,8 @@
 #include <WebServer.h>
 #include <esp_sleep.h>
 
-const char* ssid = "SuperAP";
-const char* password = "1407abcd";
+const char* ssid = "ASUSAP";
+const char* password = "method1234";
 const int led = 13;
 const int myservoPin = 4;
 
@@ -29,15 +29,16 @@ const char index_html[] PROGMEM = R"rawliteral(
 </header>
 <body>
     <div style="width:100%;height:100%;position:absolute" >
-        <div style="width:100%;height:50%">
+        <div style="width:100%;height:100%">
             <button onclick="led(1)" style="width:100%;height:100%;font-size:100px">启动</button>
-        </div>
-        <div style="width:100%;height:50%">
-            <button onclick="led(0)" style="width:100%;height:100%;font-size:100px">关闭</button>
         </div>
     </div>
 </body>
 </html>)rawliteral";
+
+void handleRoot() {
+  server.send(200, "text/html", index_html);
+}
 
 void handleNotFound() {
   digitalWrite(led, 1);
@@ -55,14 +56,14 @@ void handleNotFound() {
   server.send(404, "text/plain", message);
   digitalWrite(led, 0);
 }
-//舵机脉宽调制
-void servoSweep(int servoPin, int angel) {
+
+void servoSweep(int sp1, int val1) {
   for (int i = 0; i <= 50; i++) {
-    int pulseWidth = map(angel, 0, 180, 500, 2480);
-    digitalWrite(servoPin, HIGH);   //将舵机接口电平至高
-    delayMicroseconds(pulseWidth);  //延时脉宽值的微秒数
-    digitalWrite(servoPin, LOW);    //将舵机接口电平至低
-    delayMicroseconds(20000 - pulseWidth);
+    int myangle = map(val1, 0, 180, 500, 2480);
+    digitalWrite(sp1, HIGH);     //将舵机接口电平至高
+    delayMicroseconds(myangle);  //延时脉宽值的微秒数
+    digitalWrite(sp1, LOW);      //将舵机接口电平至低
+    delay(20 - val1 / 1000);
   }
 }
 
@@ -100,62 +101,49 @@ void setup(void) {
       default: Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
     }
   }
-  //根节点处理
-  server.on("/", []() {
-    server.send(200, "text/html", index_html);
-  });
-  //关闭按钮
-  server.on("/led/0", []() {
-    Serial.println("led0");
-    digitalWrite(led, 0);
-    server.send(200, "text/plain", "OK");
-  });
-  //启动按钮
+
+  server.on("/", handleRoot);
+
   server.on("/led/1", []() {
     Serial.println("led1");
     digitalWrite(led, 1);
-    servoSweep(myservoPin, 180);
-    delay(200);
     servoSweep(myservoPin, 0);
+    delay(200);
+    servoSweep(myservoPin, 180);
     delay(200);
     digitalWrite(led, 0);
     server.send(200, "text/plain", "OK");
   });
   server.onNotFound(handleNotFound);
+
   server.begin();
-  //配置唤醒源
+
+  //sleep wakeup
   const uint64_t WAKEUP_PIN_BITMASK = 0b0010;
+  //配置唤醒源
   gpio_deep_sleep_hold_dis();  //在深度睡眠时禁用所有数字gpio pad保持功能。
   esp_deep_sleep_enable_gpio_wakeup(WAKEUP_PIN_BITMASK, ESP_GPIO_WAKEUP_GPIO_LOW);
   gpio_set_direction(GPIO_NUM_1, GPIO_MODE_INPUT);  //GPIO定向，设置为输入或输出
 
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
   Serial.println("HTTP server started");
 }
 
 void loop(void) {
-  if (!getLocalTime(&timeinfo))  //无ntp时间 睡眠功能失效 但web响应正常
-  {
-    Serial.println("Failed to obtain time");
+  if (!getLocalTime(&timeinfo)) {
     digitalWrite(led, 1);
-    delay(200);
+    delay(50);
     digitalWrite(led, 0);
-    delay(200);
+    delay(50);    
+    Serial.println("Failed to obtain time");
     server.handleClient();
-  } else  //正常逻辑
-  {
-    if (iowake == -1)  //不是按键唤醒
-    {
+  } else {
+    if (iowake == -1) {
       if (timeinfo.tm_hour < 17) {
-        int surplusMin = 60 - timeinfo.tm_min;
-        Serial.println("ready to sleep：" + String(surplusMin) + " min");
-        Serial.flush();
-        esp_sleep_enable_timer_wakeup(surplusMin * 60 * uS_TO_S_FACTOR);  //小时整点唤醒
         esp_deep_sleep_start();
       }
-    } else  //按键唤醒
-    {
-      if (millis() - iowake > 1000 * 60 * 5)  //唤醒5分钟
-      {
+    } else {
+      if (millis() - iowake > 1000 * 60 * 1) {
         iowake = -1;
         return;
       }
