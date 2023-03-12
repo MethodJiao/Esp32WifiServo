@@ -125,25 +125,33 @@ void setup(void) {
   esp_deep_sleep_enable_gpio_wakeup(WAKEUP_PIN_BITMASK, ESP_GPIO_WAKEUP_GPIO_LOW);
   gpio_set_direction(GPIO_NUM_1, GPIO_MODE_INPUT);  //GPIO定向，设置为输入或输出
 
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+
   Serial.println("HTTP server started");
 }
 
 void loop(void) {
-  if (!getLocalTime(&timeinfo)) {
+  if (!getLocalTime(&timeinfo))  //ntp失败
+  {
     digitalWrite(led, 1);
     delay(50);
     digitalWrite(led, 0);
-    delay(50);    
+    delay(50);
     Serial.println("Failed to obtain time");
     server.handleClient();
-  } else {
-    if (iowake == -1) {
+  } else  //ntp时间服务正常
+  {
+    if (iowake == -1)  //计时唤醒
+    {
       if (timeinfo.tm_hour < 17) {
+        int surplusMin = 60 - timeinfo.tm_min;
+        Serial.println("Ready to Sleep:" + String(surplusMin) + " min");
+        Serial.flush();
+        esp_sleep_enable_timer_wakeup(surplusMin * 60 * uS_TO_S_FACTOR);  //整点唤醒
         esp_deep_sleep_start();
       }
-    } else {
-      if (millis() - iowake > 1000 * 60 * 1) {
+    } else  //按键唤醒
+    {
+      if (millis() - iowake > 1000 * 60 * 5) {
         iowake = -1;
         return;
       }
